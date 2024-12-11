@@ -83,9 +83,10 @@ class PurePursuit(Node):
     def find_goal_waypoint(self, curr_x, curr_y):
         # Given a list of waypoints
         for idx, i in enumerate(self.markers[self.current_waypoint_idx:], start=self.current_waypoint_idx + 1):
-            # self.get_logger().info(f'{idx}')
+            # if at the end of the markers, go to the beginning and keep looking
             if idx >= len(self.markers) - 1: self.current_waypoint_idx = idx = 0 
             else: 
+                # Get first distance of the markers from current position
                 distance = np.sqrt((self.markers[idx][0] - curr_x)**2 + (self.markers[idx][1] - curr_y)**2)
                 
                 # Go up the waypoint until you get the one that is one Looahead Dist away from car
@@ -99,7 +100,7 @@ class PurePursuit(Node):
         closest_idx = -1  # Initialize with an invalid index
 
         for idx, (wp_x, wp_y, _) in enumerate(self.markers):
-            # Calculate the Euclidean distance between the current position and the waypoint
+            # Calculate the distance from current pos to next closest waypoint
             distance = np.sqrt((wp_x - curr_x) ** 2 + (wp_y - curr_y) ** 2)
             
             # Update if this waypoint is closer than the previously found one
@@ -107,11 +108,15 @@ class PurePursuit(Node):
                 min_distance = distance
                 closest_idx = idx
 
+        # return once found closest index
         return closest_idx
 
 
     def odom_callback(self, odom_msg):
+        # Current position and Orientation of the car
         curr_x, curr_y, orientation = float(odom_msg.pose.pose.position.x), float(odom_msg.pose.pose.position.y), odom_msg.pose.pose.orientation
+
+        # Calculating yaw of theta, where the car is going
         theta = np.arctan2(2.0 * (orientation.w * orientation.z + orientation.x * orientation.y), 1.0 - 2.0 * (orientation.y**2 + orientation.z**2))
 
         # TODO: find the current waypoint to track using methods mentioned in lecture
