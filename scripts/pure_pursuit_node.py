@@ -43,9 +43,11 @@ class PurePursuit(Node):
             10
         )
 
-        self.lookahead = 1
-        
+        self.min_lookahead = 1.5
+        self.max_lookahead = 8
+        self.current_waypoint_idx = 0
         self.markers = self.load_markers(csv_path=os.getcwd()+'/src/pure_pursuit_node/data.csv')
+        self.markers = list(np.float_(self.markers))
         self.publish_markers()        
 
     def load_markers(self, csv_path):
@@ -75,28 +77,66 @@ class PurePursuit(Node):
             marker.scale.z = 0.1
             marker.color = ColorRGBA(r=0.0, g=1.0, b=0.0, a=1.0)
             marker_array.markers.append(marker)
-            self.get_logger().info(f'{marker.pose.position.x, marker.pose.position.y} loaded.')
         self.marker_publisher.publish(marker_array)
+
+    
+    def find_goal_waypoint(self, curr_x, curr_y):
+        # Given a list of waypoints
+        for idx, i in enumerate(self.markers[self.current_waypoint_idx:], start=self.current_waypoint_idx + 1):
+            # self.get_logger().info(f'{idx}')
+            if idx >= len(self.markers) - 1: self.current_waypoint_idx = idx = 0 
+            else: 
+                distance = np.sqrt((self.markers[idx][0] - curr_x)**2 + (self.markers[idx][1] - curr_y)**2)
+                
+                # Go up the waypoint until you get the one that is one Looahead Dist away from car
+                if distance > self.min_lookahead and distance < self.max_lookahead:
+                    return idx
+                
+        return 0
+    
+    def find_closest_waypoint(self, curr_x, curr_y):
+        min_distance = float('inf')  # Start with an infinitely large distance
+        closest_idx = -1  # Initialize with an invalid index
+
+        for idx, (wp_x, wp_y, _) in enumerate(self.markers):
+            # Calculate the Euclidean distance between the current position and the waypoint
+            distance = np.sqrt((wp_x - curr_x) ** 2 + (wp_y - curr_y) ** 2)
+            
+            # Update if this waypoint is closer than the previously found one
+            if distance < min_distance:
+                min_distance = distance
+                closest_idx = idx
+
+        return closest_idx
 
 
     def odom_callback(self, odom_msg):
-        current_position = np.array(odom_msg.pose.pose.position.x, odom_msg.pose.pose.position.y)
-        self.get_logger().info(f'{current_position[0], current_position[1]} is the current x, y position.')
-    
-        # TODO: find the current waypoint to track using methods mentioned in lecture
+        curr_x, curr_y, orientation = float(odom_msg.pose.pose.position.x), float(odom_msg.pose.pose.position.y), odom_msg.pose.pose.orientation
+        theta = np.arctan2(2.0 * (orientation.w * orientation.z + orientation.x * orientation.y), 1.0 - 2.0 * (orientation.y**2 + orientation.z**2))
 
-        
+        # TODO: find the current waypoint to track using methods mentioned in lecture
+        self.current_waypoint_idx = self.find_closest_waypoint(curr_x, curr_y)
+        goal_idx = self.find_goal_waypoint(curr_x, curr_y)
+        goal_x, goal_y = self.markers[goal_idx][0], self.markers[goal_idx][1]
 
         # TODO: transform goal point to vehicle frame of reference
+        dx = goal_x - curr_x  
+        dy = goal_y - curr_y
 
+        local_x = dx * np.cos(-theta) - dy * np.sin(-theta)
+        local_y = dx * np.sin(-theta) + dy * np.cos(-theta)
+        goal_dist = (local_x**2 + local_y**2)
+        
         # TODO: calculate curvature/steering angle
-        curvature = (2*abs(current_position[1]))/(self.lookahead^2)
+        curvature = (2 * local_y) / goal_dist
+        steering_angle = np.arctan(curvature)
 
-        # TODO: publish drive message, don't forget to limit the steering angle
+        # TODO: publish drive message, don't forget to limit the steering angle.
         drive_msg = AckermannDriveStamped()
-        drive_msg.drive.steering_angle = np.clip(curvature, -.3, .3)
-        drive_msg.drive.speed = drive_msg.drive.steering_angle
+        drive_msg.drive.steering_angle = np.clip(steering_angle, -.3, .3)
+        drive_msg.drive.speed = 3.0  # Adjust speed as needed
         self.drive_publisher.publish(drive_msg)
+
 
 def main(args=None):
     rclpy.init(args=args)
